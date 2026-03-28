@@ -5,14 +5,15 @@ import os
 import requests
 from pypdf import PdfReader
 from pydantic import BaseModel
+import logging
 
 import gradio as gr
 
 
 load_dotenv(override=True)
 
-MODEL = "gpt-4o-mini"
-EVALUATOR_MODEL = "google/gemini-2.5-flash-preview-05-20"
+MODEL = "openai/gpt-oss-120b"
+EVALUATOR_MODEL = "google/gemini-2.5-flash-lite"
 
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
@@ -88,38 +89,6 @@ tools_functions = {
 }
 
 
-class Evaluation(BaseModel):
-    is_acceptable: bool
-    feedback: str
-
-class Evaluator:
-    def __init__(self):
-        self.gemini = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=os.getenv('OPENROUTER_API_KEY'))
-        self.name = "Thomas Juma"
-    
-    def evaluator_system_prompt(self, name, summary, linkedin):
-        evaluator_system_prompt = f"You are an evaluator that decides whether a response to a question is acceptable. \
-            You are provided with a conversation between a User and an Agent. Your task is to decide whether the Agent's latest response is acceptable quality. \
-            The Agent is playing the role of {name} and is representing {name} on their website. \
-            The Agent has been instructed to be professional and engaging, as if talking to a potential client or future employer who came across the website. \
-            The Agent has been provided with context on {name} in the form of their summary and LinkedIn details. Here's the information:"
-
-        evaluator_system_prompt += f"\n\n## Summary:\n{summary}\n\n## LinkedIn Profile:\n{linkedin}\n\n"
-        evaluator_system_prompt += f"With this context, please evaluate the latest response, replying with whether the response is acceptable and your feedback."
-        return evaluator_system_prompt
-
-    def evaluator_user_prompt(self, reply, message, history):
-        user_prompt = f"Here's the conversation between the User and the Agent: \n\n{history}\n\n"
-        user_prompt += f"Here's the latest message from the User: \n\n{message}\n\n"
-        user_prompt += f"Here's the latest response from the Agent: \n\n{reply}\n\n"
-        user_prompt += "Please evaluate the response, replying with whether it is acceptable and your feedback."
-        return user_prompt
-    
-    def evaluate(self, reply, message, history):
-        messages = [{"role": "system", "content": self.evaluator_system_prompt(self.name, self.summary, self.linkedin)}] + [{"role": "user", "content": self.evaluator_user_prompt(reply, message, history)}]
-        response = self.openai.chat.completions.create(model=EVALUATOR_MODEL, messages=messages, response_format=Evaluation)
-        return response.choices[0].message.content
-
 class Me:
 
     def __init__(self):
@@ -182,8 +151,43 @@ If the user is engaging in discussion, try to steer them towards getting in touc
         response = self.openai.chat.completions.create(model=MODEL, messages=messages)
         return response.choices[0].message.content
 
-evaluator = Evaluator()
 me = Me()
+
+
+class Evaluation(BaseModel):
+    is_acceptable: bool
+    feedback: str
+
+class Evaluator:
+    def __init__(self):
+        self.gemini = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=os.getenv('OPENROUTER_API_KEY'))
+        self.name = "Thomas Juma"
+    
+    def evaluator_system_prompt(self, name, summary, linkedin):
+        evaluator_system_prompt = f"You are an evaluator that decides whether a response to a question is acceptable. \
+            You are provided with a conversation between a User and an Agent. Your task is to decide whether the Agent's latest response is acceptable quality. \
+            The Agent is playing the role of {name} and is representing {name} on their website. \
+            The Agent has been instructed to be professional and engaging, as if talking to a potential client or future employer who came across the website. \
+            The Agent has been provided with context on {name} in the form of their summary and LinkedIn details. Here's the information:"
+
+        evaluator_system_prompt += f"\n\n## Summary:\n{summary}\n\n## LinkedIn Profile:\n{linkedin}\n\n"
+        evaluator_system_prompt += f"With this context, please evaluate the latest response, replying with whether the response is acceptable and your feedback."
+        return evaluator_system_prompt
+
+    def evaluator_user_prompt(self, reply, message, history):
+        user_prompt = f"Here's the conversation between the User and the Agent: \n\n{history}\n\n"
+        user_prompt += f"Here's the latest message from the User: \n\n{message}\n\n"
+        user_prompt += f"Here's the latest response from the Agent: \n\n{reply}\n\n"
+        user_prompt += "Please evaluate the response, replying with whether it is acceptable and your feedback."
+        return user_prompt
+    
+    def evaluate(self, reply, message, history):
+        messages = [{"role": "system", "content": self.evaluator_system_prompt(me.name, me.summary, me.linkedin)}] + [{"role": "user", "content": self.evaluator_user_prompt(reply, message, history)}]
+        response = self.gemini.chat.completions.parse(model=EVALUATOR_MODEL, messages=messages, response_format=Evaluation)
+        return response.choices[0].message.parsed
+
+
+evaluator = Evaluator()
 
 def chat(message, history):
     reply = me.chat(message, history)
@@ -192,13 +196,17 @@ def chat(message, history):
     
     if evaluation.is_acceptable:
         print("Passed evaluation - returning reply")
+        logging.info("Passed evaluation - returning reply")
     else:
-        print("Failed evaluation - retrying")
-        print(evaluation.feedback)
+        logging.error("Failed evaluation - retrying")
+        logging.info(evaluation.feedback)
         reply = me.rerun(reply, message, history, evaluation.feedback)       
     return reply
 
 if __name__ == "__main__":
     me = Me()
-    gr.ChatInterface(chat, type="messages").launch()
+    # gr.ChatInterface(theme=gr.themes.Gallery(), fn=chat, type="messages").launch()
+    gr.ChatInterface(theme=gr.themes.Gallery(), fn=chat, type="messages", title="Thomas Juma", description="Ask me anything about my career, background, skills and experience.").launch()
+    
+    
     
