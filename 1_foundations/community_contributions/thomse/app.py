@@ -20,7 +20,7 @@ openai_api_key = os.getenv('OPENAI_API_KEY')
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 def push(text):
-    requests.post(
+    response = requests.post(
         "https://api.pushover.net/1/messages.json",
         data={
             "token": os.getenv("PUSHOVER_TOKEN"),
@@ -28,6 +28,8 @@ def push(text):
             "message": text,
         }
     )
+    logging.info(f"Pushover response: {response.json()}", flush=True)
+    return response.json()
 
 
 def record_user_details(email, name="Name not provided", notes="not provided"):
@@ -105,11 +107,12 @@ class Me:
 
 
     def handle_tool_call(self, tool_calls):
+        logging.info(f"Tool calls: {tool_calls}", flush=True)
         results = []
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             arguments = json.loads(tool_call.function.arguments)
-            print(f"Tool called: {tool_name}", flush=True)
+            logging.info(f"Tool called: {tool_name} with arguments: {arguments}", flush=True)
             tool = tools_functions.get(tool_name)
             result = tool(**arguments) if tool else {}
             results.append({"role": "tool","content": json.dumps(result),"tool_call_id": tool_call.id})
@@ -205,8 +208,10 @@ def chat(message, history):
 
 if __name__ == "__main__":
     me = Me()
-    # gr.ChatInterface(theme=gr.themes.Gallery(), fn=chat, type="messages").launch()
-    gr.ChatInterface(theme=gr.themes.Gallery(), fn=chat, type="messages", title="Thomas Juma", description="Ask me anything about my career, background, skills and experience.").launch()
+    gr.ChatInterface(
+        theme=gr.themes.Soft(),
+        fn=chat, type="messages", title="Thomas Juma", 
+        description="Ask me anything about my career, background, skills and experience.").launch()
     
     
     
